@@ -10,6 +10,9 @@ from itertools import combinations
 from sklearn.metrics import roc_auc_score, average_precision_score
 import pickle
 
+from torch_geometric.utils import dense_to_sparse
+
+
 class GATLayer(nn.Module):
     """ one layer of GAT """
     def __init__(self, input_dim, output_dim, n_heads, activation, dropout, bias=True):
@@ -110,11 +113,12 @@ class GCNLayer(nn.Module):
 
 
 class SAGELayer(nn.Module):
-    """ one layer of GraphSAGE with gcn aggregator """
+    """ one layer of GraphSAGE"""
     def __init__(self, input_dim, output_dim, n_heads, activation, dropout, bias=True):
         super(SAGELayer, self).__init__()
         self.linear_neigh = nn.Linear(input_dim, output_dim, bias=False)
-        # self.linear_self = nn.Linear(input_dim, output_dim, bias=False)
+        # Using GraphSAGE aggregation: Process linear_self
+        self.linear_self = nn.Linear(input_dim, output_dim, bias=False)
         self.activation = activation
         if dropout:
             self.dropout = nn.Dropout(p=dropout)
@@ -131,18 +135,125 @@ class SAGELayer(nn.Module):
                 nn.init.constant_(param, 0.0)
 
     def forward(self, adj, h):
-        # using GCN aggregator
+        # Using GraphSAGE aggregation: Process self and neighbors separately then add them together
         if self.dropout:
             h = self.dropout(h)
         x = adj @ h
-        x = self.linear_neigh(x)
-        # x_neigh = self.linear_neigh(x)
-        # x_self = self.linear_self(h)
-        # x = x_neigh + x_self
+        # x = self.linear_neigh(x)
+        x_neigh = self.linear_neigh(x)
+        x_self = self.linear_self(h)
+        x = x_neigh + x_self
         if self.activation:
             x = self.activation(x)
-        # x = F.normalize(x, dim=1, p=2)
+        x = F.normalize(x, dim=1, p=2)
         return x
+
+        # # using GCN aggregator
+        # if self.dropout:
+        #     h = self.dropout(h)
+        # x = adj @ h
+        # x = self.linear_neigh(x)
+        # # x_neigh = self.linear_neigh(x)
+        # # x_self = self.linear_self(h)
+        # # x = x_neigh + x_self
+        # if self.activation:
+        #     x = self.activation(x)
+        # # x = F.normalize(x, dim=1, p=2)
+        # return x
+
+from torch_geometric.nn import GINConv
+from torch.nn import ReLU
+class GINLayer(nn.Module):
+    """  one layer of Gin """
+    def __init__(self, in_dim, out_dim, n_heads, activation=None, dropout=0.0):
+        super(GINLayer, self).__init__()
+        mlp = nn.Sequential(
+            nn.Linear(in_dim, out_dim),
+            ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(out_dim, out_dim)
+        )
+        self.conv = GINConv(mlp)
+
+    def forward(self, adj, h):
+        # 关键步骤：将密集邻接矩阵adj转换为稀疏边索引edge_index
+        edge_index, _ = dense_to_sparse(adj)  # 如果不需要边权重，用_接收忽略即可
+        # 将转换后的edge_index和节点特征h传入GINConv
+        return self.conv(x=h, edge_index=edge_index)
+        # return self.conv(h, edge_index)
+    # def forward(self, adj, h):
+    #     return self.conv(h, adj)
+
+# class GIN(torch.nn.Module):
+#     """
+#     Graph Isomorphism Network (GIN) model from Xu et al. (2019)
+#     "How Powerful are Graph Neural Networks?".
+#     This implementation focuses on the node classification variant.
+#     """
+#
+#     def __init__(
+#         self,
+#         in_channels: int,
+#         hidden_channels: int,
+#         out_channels: int,
+#         dropout: float,
+#         num_mlp_layers: int = 2,
+#         eps: float = 0.0,
+#         train_eps: bool = False,
+#     ):
+#         """
+#         Args:
+#             in_channels (int): Input feature dimensionality.
+#             hidden_channels (int): Hidden dimensionality used within MLPs and GIN layers.
+#             out_channels (int): Output dimensionality (number of classes).
+#             dropout (float): Dropout probability applied after the first GIN layer.
+#             num_mlp_layers (int): Number of layers in the MLP for each GINConv. Must be >= 1.
+#             eps (float): Initial value for the epsilon parameter in GINConv.
+#             train_eps (bool): If True, the epsilon parameter becomes learnable.
+#         """
+#         super().__init__()
+#
+#         if num_mlp_layers < 1:
+#             raise ValueError("num_mlp_layers must be at least 1.")
+#
+#         # Define MLP for the first GIN layer
+#         mlp1_layers = [
+#             Linear(in_channels, hidden_channels),
+#             BatchNorm1d(hidden_channels),
+#             ReLU(),
+#         ]
+#         for _ in range(num_mlp_layers - 1):
+#             mlp1_layers.extend(
+#                 [
+#                     Linear(hidden_channels, hidden_channels),
+#                     BatchNorm1d(hidden_channels),
+#                     ReLU(),
+#                 ]
+#             )
+#         mlp1 = Sequential(*mlp1_layers)
+#         self.conv1 = GINConv(nn=mlp1, eps=eps, train_eps=train_eps)
+#
+#         # Define MLP for the second GIN layer (includes final projection)
+#         mlp2_layers = [
+#             Linear(hidden_channels, hidden_channels),
+#             BatchNorm1d(hidden_channels),
+#             ReLU(),
+#         ]
+#         for _ in range(num_mlp_layers - 1):
+#             mlp2_layers.extend(
+#                 [
+#                     Linear(hidden_channels, hidden_channels),
+#                     BatchNorm1d(hidden_channels),
+#                     ReLU(),
+#                 ]
+#             )
+#         # Final projection layer within the MLP of the second GINConv
+#         mlp2_layers.append(Linear(hidden_channels, out_channels))
+#         mlp2 = Sequential(*mlp2_layers)
+#         self.conv2 = GINConv(nn=mlp2, eps=eps, train_eps=train_eps)
+#
+#         self.dropout_p = dropout
+#         self.num_layers = 2  # Simple property for loader setup
 
 
 
@@ -227,6 +338,8 @@ class DDA(object):
             self.adj = scipysp_to_pytorchsp(adj_matrix_noselfloop)
         elif gnnlayer_type == 'gat':
             # self.adj = scipysp_to_pytorchsp(adj_matrix)
+            self.adj = torch.FloatTensor(adj_matrix.todense())
+        elif gnnlayer_type == 'gin':
             self.adj = torch.FloatTensor(adj_matrix.todense())
         # labels (torch.LongTensor) and train/validation/test nids (np.ndarray)
         if len(labels.shape) == 2:
@@ -334,6 +447,7 @@ class DDA(object):
         # 如果使用GCN层,则使用与self.adj_norm相同的归一化方式。
         # 如果使用GraphSAGE层,则对邻接矩阵进行行归一化,并删除自环。
         # 如果使用GAT层,则直接使用原始的密集邻接矩阵。
+        # 如果使用Gin层,则直接使用原始的密集邻接矩阵。
         adj = self.adj.to(self.device)
         features = self.features.to(self.device)
         labels = self.labels.to(self.device)
@@ -720,6 +834,8 @@ class GNN(nn.Module):
             dim_h = int(dim_h / 8)
             dropout = 0.6
             activation = F.elu
+        elif gnnlayer_type == 'gin':
+            gnnlayer = GINLayer
         self.layers = nn.ModuleList()
         # input layer
         self.layers.append(gnnlayer(dim_feats, dim_h, heads[0], activation, 0))

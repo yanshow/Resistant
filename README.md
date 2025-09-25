@@ -1,6 +1,6 @@
 # Resistant
 
-This repository is for source code of "Resistant: Desensitizing Graph Neural Networks Against Adversarial Attacks".
+This repository is for source code of "A Generic Framework for Graph Neural Networks Against Adversarial Attacks".
 
 ## Environment
 
