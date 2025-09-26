@@ -16,7 +16,7 @@ parser.add_argument("--log", action='store_true', default=False, help='run prepa
 parser.add_argument('--attack', type=str, default='meta', help='attack method')
 parser.add_argument('--datasets', nargs='+', default=['citeseer'], help='datasets')
 parser.add_argument('--ptb_rates', nargs='+', type=float, default=[0.05,0.1,0.15,0.2], help='perturbation rates')
-parser.add_argument('--vanillaGNN', type=str, default='gsage', help='vanilla GNN')
+parser.add_argument('--vanillaGNN', type=str, default='gin', help='vanilla GNN')
 args = parser.parse_args()
 
 def main(trial, dataset, ptb_rate):

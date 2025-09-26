@@ -161,28 +161,45 @@ class SAGELayer(nn.Module):
         # # x = F.normalize(x, dim=1, p=2)
         # return x
 
-from torch_geometric.nn import GINConv
-from torch.nn import ReLU
 class GINLayer(nn.Module):
-    """  one layer of Gin """
-    def __init__(self, in_dim, out_dim, n_heads, activation=None, dropout=0.0):
+    def __init__(self, input_dim, output_dim, n_heads,activation,dropout,hidden_dim=32):
         super(GINLayer, self).__init__()
-        mlp = nn.Sequential(
-            nn.Linear(in_dim, out_dim),
-            ReLU(),
+        self.mlp = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(out_dim, out_dim)
+            nn.Linear(hidden_dim, output_dim)
         )
-        self.conv = GINConv(mlp)
+        self.eps = nn.Parameter(torch.zeros(output_dim))
 
     def forward(self, adj, h):
-        # 关键步骤：将密集邻接矩阵adj转换为稀疏边索引edge_index
-        edge_index, _ = dense_to_sparse(adj)  # 如果不需要边权重，用_接收忽略即可
-        # 将转换后的edge_index和节点特征h传入GINConv
-        return self.conv(x=h, edge_index=edge_index)
-        # return self.conv(h, edge_index)
-    # def forward(self, adj, h):
-    #     return self.conv(h, adj)
+        out = self.mlp((1 + self.eps) * h + torch.matmul(adj, h))
+        return out
+
+
+
+# from torch_geometric.nn import GINConv
+# from torch.nn import ReLU
+# class GINLayer(nn.Module):
+#     """  one layer of Gin """
+#     def __init__(self, in_dim, out_dim, n_heads, activation=None, dropout=0.0):
+#         super(GINLayer, self).__init__()
+#         mlp = nn.Sequential(
+#             nn.Linear(in_dim, out_dim),
+#             ReLU(),
+#             nn.Dropout(dropout),
+#             nn.Linear(out_dim, out_dim)
+#         )
+#         self.conv = GINConv(mlp)
+#
+#     def forward(self, adj, h):
+#         # 关键步骤：将密集邻接矩阵adj转换为稀疏边索引edge_index
+#         edge_index, _ = dense_to_sparse(adj)  # 如果不需要边权重，用_接收忽略即可
+#         # 将转换后的edge_index和节点特征h传入GINConv
+#         return self.conv(x=h, edge_index=edge_index)
+#         # return self.conv(h, edge_index)
+#     # def forward(self, adj, h):
+#     #     return self.conv(h, adj)
 
 # class GIN(torch.nn.Module):
 #     """
@@ -340,6 +357,11 @@ class DDA(object):
             # self.adj = scipysp_to_pytorchsp(adj_matrix)
             self.adj = torch.FloatTensor(adj_matrix.todense())
         elif gnnlayer_type == 'gin':
+            adj_matrix.setdiag(1)  # 确保有自环
+            # 可选：简单的度归一化，但并非必需
+            # degrees = np.array(adj_matrix.sum(1))
+            # degree_mat_inv = sp.diags(np.power(degrees, -1).flatten())
+            # adj_matrix = degree_mat_inv @ adj_matrix
             self.adj = torch.FloatTensor(adj_matrix.todense())
         # labels (torch.LongTensor) and train/validation/test nids (np.ndarray)
         if len(labels.shape) == 2:
@@ -866,6 +888,8 @@ class GNN_JK(nn.Module):
             heads = [8] * n_layers + [1]
             dim_h = int(dim_h / 8)
             activation = F.elu
+        elif gnnlayer_type == 'gin':
+            gnnlayer = GINLayer
         self.layers = nn.ModuleList()
         # input layer
         self.layers.append(gnnlayer(dim_feats, dim_h, heads[0], activation, 0))
